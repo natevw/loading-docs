@@ -30,8 +30,8 @@ Thus, given the input…
 
 ```
 some_folder/
-  file1.txt    ('string content of file1')
-  file2.html   ('string content of file2')
+  file1.txt    ('content of file1')
+  file2.html   ('content of file2')
   subfolder/
     file.three.json ('["parsed", "content", "of", "file:", 3]')
     content.md      ('# Heading\n\nSome content.')
