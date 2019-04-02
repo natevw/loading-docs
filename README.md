@@ -1,223 +1,86 @@
-# putdoc
+# loading-docs
 
-PUT a folder as JSON, in CouchDB "traditional couchapp" style, via simple node.js tool.
+Reads in JSON-like objects from a folder/file structure on disk.
+
+## Installation
+
+This library is published on npm, so you can install via:
+
+```
+npm install --save loading-docs
+```
 
 ## Usage
 
-Install putdoc, and then use it to push a JSON "document folder" to a CouchDB database:
-
 ```
-npm install --global putdoc
-putdoc /path/to/ddoc-folder http://localhost:5984/some-db
+TODO: simple example
 ```
 
-Or within a node.js project:
+## Folder → Object mapping
+
+The basic idea is:
+
+* folders generate objects
+* files generate entries therein
+
+
+Thus, given the input…
 
 ```
-npm install --save-dev putdoc
-# simple shell example, more likely you would use `putdoc` from a package.json script…
-export PATH=$PATH:./node_modules/.bin
-putdoc . http://localhost:5984/some-db
+some_folder/
+  file1.txt    ('string content of file1')
+  file2.html   ('string content of file2')
+  subfolder/
+    file.three.json ('["parsed", "content", "of", "file:", 3]')
+    content.md      ('# Heading\n\nSome content.')
+    helper.js       ('alert("Hello world!")')
 ```
 
-## "Document folder" structure
-
-A design document folder is turned into an object using each file or subfolder's name as a key (dropping any extension).
-
-The UTF-8 content of most files are used as a (string) value, and subfolders become nested objects.
-
-Files with the `.json` extension are parsed to support other datatypes like arrays/numbers/boolean.
-
-If there is an "_attachments" subfolder, the binary files are uploaded verbatim under their original subpaths. The content type will be guessed based on each file's extension.
-
-If there is a "_docs" subfolder, it may contain a mix of either `.json` files and/or nested "document folder" structures. These will be uploaded alongside the main document. This is useful for seeding app data, but be careful since any changes that have made in the database will be overwritten.
-
-(For an alternate explanation of this overall structure, see [The CouchApp Filesystem Mapping](http://couchapp.readthedocs.io/en/latest/design/filesystem-mapping.html) documentation. This implementation may differ slightly, but the general approach is the same.)
-
-### Bonus feature: merging multiple entries into an object
-
-Within any object (e.g. document or subfolder), `putdoc` will recognize a special key named `_data`. The value of this field must be an object, and the entries of this object will be merged into its *parent*.
-
-This is **not** part of the original CouchApp's filesystem mapping and may not be supported by any other utility; use advisedly if compatibility is a concern. Without this feature, you must choose between representing an object as:
-
-1. a folder with *all* its entries as individual files
-2. via a `.json` file within a parent object
-
-This feature adds additional flexibility for organizing documents/sub-objects:
-
-1. folder with individual entry files
-2. single `.json` file within a parent
-3. folder with entries in individual files *and/or* a `_data.json` file
-
-This is especially useful at the top level document where you may want a folder structure for `_attachments` but also have lots of little fields that don't need their own files.
-
-A few other tips: if you really have need, `putdoc` actually supports merging *multiple* objects where the first \[dot-separated] part of the filename \[i.e. key] is `_data`. That is, entries from `_data.X.json`, `_data.generated.json`, `_data.json`, and even `_data.group1/` will all get merged into their parent object. Also, in a `_docs` folder any `_data` entries found will be mixed in to all the documents in that folder.
-
-In all cases, the precendence of keys defined in multiple places is currently unspecified and subject to random chance/future change.
-
-
-## Examples
-
-A design document might have a folder like:
-
-```
-my_app_repo/
-  _id         ('_design/glob')
-  language    ('javascript')
-  views/
-    by_date/
-      map.js
-      reduce.js
-    by_path/
-      map.js
-  rewrites.json
-  lists/
-    posts.js
-  lib/
-    atom.js
-    date.js
-    glob.js
-    …
-  templates/
-    theme.html
-  _attachments/
-    logo.png
-    nerdishness.html
-```
-
-You could then update the "_design/glob" document in a local "dev_db" by using the following command:
-
-    putdoc . http://some_admin:their_password@localhost:5984/dev_db
-
-
-### Regular documents
-
-You can use putdoc for regular documents too, if you have need:
-
-```
-freedom_day
-  _id         ('event-863798f3-c427-4519-951f-752682aee66a')
-  name        ('Juneteenth')
-  timestamp   ('1865-06-19T09:00:00-05:00')
-  alt_names.json ('["Juneteenth Independence Day", "Freedom Day"]')
-```
-
-Simply becomes this when uploaded:
+This library will output…
 
 ```
 {
-  "_id": "event-863798f3-c427-4519-951f-752682aee66a",
-  "name": "First Juneteenth",
-  "timestamp": "1865-06-19T09:00:00-05:00",
-  "alt_names": ["Juneteenth Independence Day", "Freedom Day"]
-}
-```
-
-This would probably be more useful with a document that had attachments, although note that putdoc does not handle large attachments well.
-
-
-### Multiple documents
-
-As in the original CouchApp spec, any document can have a `_docs` folder containing nested documents and these will be uploaded separately.
-
-You can also use putdoc on a **folder** of regular and/or design documents, using the `--docs` CLI flag:
-
-```
-sample_data
-  doc1.json
-  doc2.json
-  doc3
-    info      ("this document has some attachments")
-    _attachments
-      file1.txt
-      file2.txt
-```
-
-Running `putdoc --docs ./sample_data http://localhost:5984/my_data` will upload three documents (doc1/doc2/doc3) to the my_data database, with no "parent" document corresponding to the sample_data folder itself.
-
-
-### Merged data
-
-If you wish to group some of the ddoc's smaller files into a single JSON, you could accomplish the same result as the first example above using "merged data":
-
-```
-my_app_repo/
-  _data.json  ('{"id":"_design/glob","language":"javascript"}')
-  views/
-    …
-  rewrites.json
-  …
-  _attachments/
-    logo.png
-    nerdishness.html
-```
-
-
-Or for sharing common fields between multiple documents:
-
-```
-sample_group
-  _id           ('grp-dd6cde182fe78abb23ad8e40c2db5cf7')
-  _data.json    ('{"name":"Sample", "info":"this is the parent container"}')
-  _docs
-    _data.json  ('{"group_id":"grp-dd6cde182fe78abb23ad8e40c2db5cf7"}')
-    doc1.json   ('{"info":"first child"}')
-    doc2.json   ('{"info":"second child"}')
-    doc3
-      info      ('this third child has some attachments')
-      _attachments
-        file1.txt
-        file2.txt
-```
-
-This would upload **four** documents, three of which include a shared entry:
-
-```
-{
-  "_id": "grp-dd6cde182fe78abb23ad8e40c2db5cf7",
-  "name": "Sample",
-  "info": "this is the parent container"
-}
-
-{
-  "_id": "doc1",
-  "info": "first child",
-  "group_id":"grp-dd6cde182fe78abb23ad8e40c2db5cf7"
-}
-
-{
-  "_id": "doc2",
-  "info": "second child",
-  "group_id":"grp-dd6cde182fe78abb23ad8e40c2db5cf7"
-}
-
-{
-  "_id": "doc2",
-  "info": "this third child has some attachments",
-  "group_id":"grp-dd6cde182fe78abb23ad8e40c2db5cf7",
-  "_attachments": {
-    "file1.txt": {/* … */},
-    "file2.txt": {/* … */}
+  "file1": "content of file1",
+  "file2": "content of file2",
+  "subfolder": {
+    "file.three": ["parsed", "content", "of", "file:", 3],
+    "content": "# Heading\n\nSome content.",
+    "helper": "alert(\"Hello world!\")"
   }
 }
 ```
 
+Note that:
+
+1. Nested folders become nested objects
+2. Each file's name (dropping the last extension) becomes the key for its generated entry
+3. Each file's content (parsed as a UTF-8 string) becomes the value for its generated entry
+
+### Special case: .json files
+
+Note also that when the file's extension was `.json`, the string value is parsed as JSON and (if successful) the resulting value is used instead.
+
+In this way, you can generate values of non-string types: arrays, numbers, booleans, `null`, and/or nesting entries inside an object without a folder-of-files.
+
+This special built-in handling applies **only** to JSON files. In the example above, the `.html`/`.md`/`.js` files simply have their extensions stripped and generate plain string values as in the general rules. [TODO: enable plugins to extend this]
+
+### Special case: _data files
+
+[TODO: explain field merging]
+
+### Special case: _attachments folder
+
+[TODO: decide, explain binary fields]
+
+
+### Special case: _docs folder
+
+[TODO: explain nested documents]
+
 
 ## See also
 
-* [couchapp](https://github.com/couchapp/couchapp) (in Python) might be the original tool that supported this format and offers an easy `pip install couchapp`.
-
-* [Erica](https://github.com/benoitc/erica) is an Erlang port that seems similar to the original couchapp tool
-
-* [couchdb-push](https://github.com/jo/couchdb-push) is a similar tool to deploy CouchDB documents from directory, JSON or CommonJS module.
-
-* [Kanso](https://kanso.app.medicmobile.org/) is also in node.js and has a `traditional-couchapp` plugin to support the same folder structure albeit still requiring a `kanso.json` configuration file.
-
-* [node.couchapp.js](https://github.com/mikeal/node.couchapp.js/) — this uses a different app format, iirc this was a precursor to the "normal Kanso"–style apps rather than the "Traditional CouchApp" style.
-
-* I also have a utility that lets you `require()` a traditional-style design document into your node app, called [ddoc](https://github.com/natevw/ddoc). This can help you migrate design document code (like validators or views) out of the database and into middleware should you need that.
-
-* [json-fs](https://github.com/jokeyrhyme/json-fs) — converts JSON to files and directories and back, but using a different mapping than the couchapp one.
+[TODO: explain couchapp/etc. heritage]
 
 
 ## ISC License

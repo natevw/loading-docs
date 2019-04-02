@@ -1,17 +1,14 @@
 {
-  "name": "putdoc",
-  "version": "3.2.0",
-  "description": "Upload folder as a CouchDB document, particularly useful for pushing traditional couchapps",
-  "main": "build_doc.js",
-  "bin": {
-    "putdoc": "index.js"
-  },
+  "name": "loading-docs",
+  "version": "1.0.0-wip",
+  "description": "Read folders of JSON-like content documents",
+  "main": "index.js",
   "scripts": {
     "test": "node test"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/natevw/putdoc.git"
+    "url": "git+https://github.com/natevw/loading-docs.git"
   },
   "keywords": [
     "couchdb",
@@ -21,12 +18,7 @@
   "author": "Nathan Vander Wilt",
   "license": "ISC",
   "bugs": {
-    "url": "https://github.com/natevw/putdoc/issues"
+    "url": "https://github.com/natevw/loading-docs/issues"
   },
-  "homepage": "https://github.com/natevw/putdoc#readme",
-  "dependencies": {
-    "fermata": "^0.11.0-beta3",
-    "mime": "^2.4.0",
-    "xok": "^2.0.0"
-  }
+  "homepage": "https://github.com/natevw/loading-docs#readme",
 }

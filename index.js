@@ -1,41 +1,142 @@
-#! /usr/bin/env node
+var fs = require('fs'),
+    p = require('path');
 
-var buildDoc = require("./build_doc.js"),
-    fermata = require('fermata');
-
-var no_parent = (process.argv[2] === '--docs'),
-    args_expected = (no_parent) ? 5 : 4;
-
-if (process.argv.length < args_expected) {
-  console.log("Usage: putdoc [--docs] <doc_folder> <post_url>");
-  process.exit(-1);
-}
-
-var doc_folder = process.argv[args_expected - 2],
-    post_url = process.argv[args_expected - 1];
-
-var docs = [];
-function extractDocs(doc) {
-  if (doc._id) docs.push(doc);
-  else if (!no_parent || docs.length) console.warn("Unexpected _id-less doc:", doc);
-  if (doc._docs) {
-    doc._docs.forEach(extractDocs);
-    delete doc._docs;
+module.exports = function (ddoc_dir, opts) {
+  opts = Object.assign({
+    getMimeType: function (file) { return "application/octet-stream"; },
+    no_parent: false,   // boolean: if true, expects so-called `ddoc_dir` to be a folder containing individual documents
+    ignore: []          // string: path to JSON ignores list, array: provide list directly, fn: used to test
+  }, opts);
+  
+  if (typeof opts.ignore === 'string') try {
+    var ignore_file = p.join(ddoc_dir, opts.ignore);
+    opts.ignore = loadData(ignore_file, {json:true});
+  } catch (err) {
+    if (err.code === 'ENOENT') opts.ignore = [];
+    else throw err;
   }
-}
-extractDocs(buildDoc(doc_folder, {no_parent:no_parent}));
-
-var api = fermata.json(post_url);
-docs.forEach(function (doc) {
-  var doc_url = api([doc._id]);
-  doc_url.get(function (e,oldDoc) {
-    if (e && e.status !== 404) console.error("Error checking current doc:", e, arguments);
-    else {
-      if (!e) doc._rev = oldDoc._rev;
-      doc_url.put(doc, function (e,d) {
-        if (e) console.error("Error uploading doc:", e);
-        else console.log(d);
+  if (Array.isArray(opts.ignore)) {
+    var exclude_list = opts.ignore.map(function (s) { return new RegExp(s); });
+    opts.ignore = function (rel_path) {
+      return exclude_list.some(function (re) {
+        return re.test(rel_path);
       });
     }
-  });
-});
+  }
+  
+  function loadData(abs_path, opts) {
+    opts = Object.assign({json:false}, opts);
+    
+    var data = fs.readFileSync(abs_path, 'utf8');
+    if (opts.json) {
+      try {
+        data = JSON.parse(data);
+      } catch (err) {
+        console.warn("Couldn't parse", abs_path, "as intended:", err.message);
+      }
+    }
+    return data;
+  }
+  
+  function forEachEntry(rel_base, dir, fn) {
+    fs.readdirSync(p.join(rel_base,dir)).forEach(function (file) {
+        var rel_path = p.join(dir,file),
+            abs_path = p.join(rel_base,rel_path),
+            type = fs.statSync(abs_path);
+        if (file[0] === '.' || opts.ignore(rel_path)) return;
+        else fn(file, type, rel_path, abs_path);
+    });
+  }
+  
+  function addField(obj, key, val) {
+    let keyPrefix = key.split('.')[0];
+    if (keyPrefix === '_data') {
+      if (typeof val === 'object') {
+        if (Array.isArray(val)) console.warn("Merging indexes of array", key, "into parent object.");
+        Object.assign(obj, val);
+      } else {
+        // only objects can be merged.
+        console.warn("Ignoring non-mergeable", key, typeof val, "field.");
+      }
+    } else {
+      obj[key] = val;
+    }
+  }
+  
+  function fixupId(obj, fallback_id) {
+    if (!obj._id) obj._id = fallback_id;
+    else obj._id = obj._id.trim();      // clean up a bit, not as aggressively as https://github.com/couchapp/couchapp/blob/1399aedfa9e5bb3dd582aa5992dc419e82e102a3/couchapp/localdoc.py#L81 though
+  }
+  
+  
+  function objFromDir(doc_dir, dir, lvl) {
+    var obj = {};
+    forEachEntry(doc_dir, dir, function (file, type, rel_path, abs_path) {
+      if (lvl === 0 && type.isDirectory() && file === '_attachments') {
+        obj._attachments = {};
+        addAttsFromDir(obj._attachments, doc_dir, rel_path, '');
+      }
+      else if (lvl === 0 && type.isDirectory() && file === '_docs') {
+        obj._docs = docsFromDir(abs_path);
+      }
+      else if (type.isDirectory()) {
+        var key = file,
+            val = objFromDir(doc_dir, rel_path, lvl+1);
+        addField(obj, key, val);
+      }
+      else if (type.isFile()) {
+        var ext = p.extname(file),
+            key = p.basename(file,ext),
+            val = loadData(abs_path, {json:(ext === '.json')});
+        addField(obj, key, val);
+      } else {
+          console.warn("Skipping field", rel_path);
+      }
+    });
+    return obj;
+  }
+  function docsFromDir(dir) {
+    var docs = [],
+        data = {};
+    forEachEntry(dir, '', function (file, type, rel_path, abs_path) {
+      var subdoc;
+      if (type.isDirectory()) subdoc = objFromDir(abs_path, '', 0);
+      else if (type.isFile() && p.extname(file) === '.json') {
+        subdoc = loadData(abs_path, {json:true});
+      } else {
+        console.warn("Skipping document", rel_path);
+      }
+      
+      let keyPrefix = file.split('.')[0];
+      if (keyPrefix === '_data') {
+        Object.assign(data, subdoc);
+      } else {
+        fixupId(subdoc, p.basename(file, '.json'));
+        docs.push(subdoc);
+      }
+    });
+    docs.forEach(function (subdoc) {
+      Object.assign(subdoc, data);
+    });
+    return docs;
+  }
+  function addAttsFromDir(atts, doc_dir, dir, pre) {
+    forEachEntry(doc_dir, dir, function (file, type, rel_path, abs_path) {
+      var key = p.join(pre,file);
+      if (type.isDirectory()) addAttsFromDir(atts, doc_dir, rel_path, key);
+      else atts[key] = {
+        content_type: getMimeType(file),
+        data: fs.readFileSync(abs_path).toString('base64')
+      };
+    });
+  }
+  
+  if (opts.no_parent) {
+    var _docs = docsFromDir(ddoc_dir);
+    return {_docs:_docs};
+  } else {
+    var obj = objFromDir(ddoc_dir, '', 0);
+    fixupId(obj, "_design/" + p.basename(ddoc_dir));
+    return obj;
+  }
+}
