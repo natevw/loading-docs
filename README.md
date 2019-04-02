@@ -1,3 +1,5 @@
+**NOTE**: I'm extracting the core of [putdoc](https://github.com/natevw/putdoc) into its own package. This is currently still a work-in-progress.
+
 # loading-docs
 
 Reads in JSON-like objects from a folder/file structure on disk.
